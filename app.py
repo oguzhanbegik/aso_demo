@@ -14,28 +14,52 @@ FAST_MODE = True          # set False if you want full-length folding
 FOLD_LEN_CAP = 4000       # fold at most this many nt (after trimming)
 PRESELECT_N = 300         # windows kept before uniqueness check
 
-# --- Lazy fetch the FASTA from HF Hub if missing ---
-def ensure_fasta_local(local_path: str) -> str:
-    import os
-    if os.path.exists(local_path):
-        return local_path
-    try:
-        from huggingface_hub import hf_hub_download
-        # create data/reference if needed
-        os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        # adjust repo_id/filename to your dataset repo
-        fp = hf_hub_download(
-            repo_id="YOUR_USERNAME/GRCh38_reference",  # <- create this dataset once
-            filename="Homo_sapiens.GRCh38.dna.primary_assembly.fa",
-            repo_type="dataset",
-        )
-        # symlink/copy into your expected location
-        import shutil; shutil.copy(fp, local_path)
-        return local_path
-    except Exception as e:
-        import streamlit as st
-        st.error(f"Could not fetch FASTA from Hub: {e}")
-        return local_path
+
+
+
+# --- Google Drive download with sanity checks ---
+import os, pathlib
+
+HF_REPO = "obegik/aso-big-files"
+
+def ensure_hf_file(repo_id: str, filename: str, out_path: str,
+                  *, min_bytes: int = 50_000_000, expect_fasta: bool | None = None) -> str:
+    """
+    Fetch `filename` from an HF dataset repo into `out_path`.
+    - Uses hf_hub_download (keeps the cache intact).
+    - Verifies the file exists and is not trivially small.
+    - Optionally checks the FASTA header.
+    """
+    import os, shutil, pathlib
+    from huggingface_hub import hf_hub_download
+
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    # get a fully downloaded file in the HF cache
+    cached = hf_hub_download(
+        repo_id=repo_id,
+        filename=filename,
+        repo_type="dataset",
+        local_files_only=False,
+        force_download=False,
+    )
+
+    # copy from cache to your expected path (don't move the cache file)
+    if not os.path.exists(out_path) or os.path.getsize(out_path) != os.path.getsize(cached):
+        shutil.copyfile(cached, out_path)
+
+    # sanity checks
+    sz = os.path.getsize(out_path)
+    if sz < min_bytes:
+        raise RuntimeError(f"{filename}: too small or missing after download (got {sz} bytes).")
+
+    if expect_fasta:
+        with open(out_path, "rb") as fh:
+            b = fh.read(1)
+        if b != b">":
+            raise RuntimeError(f"{filename}: not a FASTA (no leading '>').")
+
+    return out_path
 
 
 # --- Local page modules (make sure these files sit next to app.py) ---
@@ -515,12 +539,28 @@ def page_aso_design():
 
     st.header("ASO Design (GFF-only)")
 
-    # Paths
-    #fa        = os.path.join(REF_DIR, "Homo_sapiens.GRCh38.dna.primary_assembly.fa")
-    fa = os.path.join(REF_DIR, "Homo_sapiens.GRCh38.dna.primary_assembly.fa")
-    fa = ensure_fasta_local(fa)
-    gff       = os.path.join(DATA_DIR, "raw", "LRS_hDRG_clustered.aligned.collapsed.gff")
-    sup1a_xls = os.path.join(DATA_DIR, "raw", "SupplementaryTable_1A.xlsx")
+    st.caption(
+    "Data sources: "
+    "[FASTA (HF)](https://huggingface.co/datasets/obegik/aso-big-files/tree/main/data/reference) • "
+    "[GFF (HF)](https://huggingface.co/datasets/obegik/aso-big-files/tree/main/data/raw)"
+    )
+
+    # IDs from your links
+    #FA_ID  = "1nzcs1XW6Nw6ZYucFdfiHIk6KC5p_A0W1"
+    #GFF_ID = "1Q_uIGt1mvP8Ttnw2S6vMcY1piLlFx4r9"
+    # Where your app expects the files locally
+    fa_local  = os.path.join(REF_DIR,  "Homo_sapiens.GRCh38.dna.primary_assembly.fa")
+    gff_local = os.path.join(DATA_DIR, "raw", "LRS_hDRG_clustered.aligned.collapsed.gff")
+
+    # Where they live in the HF dataset (NOTE: include the subfolders!)
+    fa_hf_rel  = "data/reference/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
+    gff_hf_rel = "data/raw/LRS_hDRG_clustered.aligned.collapsed.gff"
+
+    # Download (first run) or reuse (cached) — adjust size guards if your files differ
+    fa  = ensure_hf_file(HF_REPO, fa_hf_rel,  fa_local,  min_bytes=3_000_000_000, expect_fasta=True)
+    gff = ensure_hf_file(HF_REPO, gff_hf_rel, gff_local, min_bytes=1_000_000)
+
+
 
     if not (os.path.exists(fa) and os.path.exists(gff)):
         st.warning("Need reference FASTA and GFF. Check config/data paths.")
@@ -541,6 +581,30 @@ def page_aso_design():
     # Load genome + isoforms from GFF
     ref = load_genome_dict_normalized(fa)
     tx_map = parse_gff_fast(gff)
+    # ---- DEBUG: inspect GFF transcript coverage ----
+    import pandas as pd
+    st.write("Number of transcripts parsed:", len(tx_map))
+    if len(tx_map) > 0:
+        sample_keys = list(tx_map.keys())[:5]
+        st.write("Sample transcript IDs:", sample_keys)
+
+    # load sup1a to see what pbids the gene uses
+    # Where Sup1A lives in the HF dataset and locally
+    sup1a_hf_rel = "data/raw/SupplementaryTable_1A.xlsx"
+    sup1a_local  = os.path.join(DATA_DIR, "raw", "SupplementaryTable_1A.xlsx")
+    sup1a_xls    = ensure_hf_file(HF_REPO, sup1a_hf_rel, sup1a_local, min_bytes=50_000)
+    sup1a_df = load_sup1a(sup1a_xls)
+    if not sup1a_df.empty:
+        gn = gene.upper()
+        subs = sup1a_df[sup1a_df["gene_name"] == gn]
+        st.write(f"{gn} isoforms in Sup1A:", list(subs["pbid"].astype(str)[:5]))
+
+        missing = []
+        for pbid in subs["pbid"].astype(str):
+            core = pbid.split("|")[0]
+            if core not in tx_map:
+                missing.append(core)
+        st.write("PBIDs missing from GFF:", missing[:10])
     sup1a  = load_sup1a(sup1a_xls) if os.path.exists(sup1a_xls) else pd.DataFrame()
     isoforms = fetch_gene_isoforms(tx_map, sup1a, gene)  # list of (pbid, exons, chr, strand)
 
@@ -596,16 +660,21 @@ def page_aso_design():
         half = FOLD_LEN_CAP//2
         seq  = seq[max(0, mid-half):mid+half]
 
-    # ---- Fold (cache by gene|pbid|len|k|cap|FAST_MODE)
+        # ---- Fold (cache by gene|pbid|len|k|cap|FAST_MODE)
     key   = f"{gene}|{_pbid}|{len(seq)}|{k}|{FOLD_LEN_CAP}|{FAST_MODE}"
     cache = st.session_state.setdefault("fold_cache", {})
     if key in cache:
         struct, mfe = cache[key]
     else:
-        struct, mfe = rnafold_structure(seq.replace("T","U"))
+        struct, mfe = rnafold_structure(seq.replace("T", "U"))
         cache[key]  = (struct, mfe)
 
-    st.caption(f"RNAfold MFE ≈ {mfe} kcal/mol on stitched cDNA of target isoform.")
+    # ONE caption/warning block only (use cached result)
+    if not struct or set(struct) == {"."}:
+        st.warning("ViennaRNA/RNAfold not available on this host — using open-structure fallback for ranking. Results are approximate.")
+    else:
+        st.caption(f"RNAfold MFE ≈ {mfe:.2f} kcal/mol on stitched cDNA of target isoform.")
+
 
     # ---- Score windows (structure-first), then uniqueness only on preselected
     seq_U  = seq.replace("T", "U")

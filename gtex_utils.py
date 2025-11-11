@@ -54,29 +54,44 @@ def parse_attrs(attr_str: str) -> dict:
     return out
 
 def parse_gff_fast(gff_path: str):
+    """
+    Universal GFF parser that supports PacBio-collapsed or standard annotations.
+    - Accepts feature: transcript, mRNA, or gene (with exons)
+    - Handles ID=PB.17754.6;Parent=...;gene=...
+    - Builds transcript entries even if exons come first
+    Returns dict: { 'PB.17754.6': {'chr': '1', 'strand': '+', 'exons': [(s,e), ...]} }
+    """
+    def _core(x: str) -> str:
+        # keep PB.17754.6 intact; just remove any |stuff if present
+        return x.split("|")[0] if x else x
+
     tx = {}
     with open(gff_path, "r") as fh:
         for line in fh:
-            if not line or line.startswith("#"): continue
+            if not line.strip() or line.startswith("#"):
+                continue
             parts = line.rstrip("\n").split("\t")
-            if len(parts) < 9: continue
+            if len(parts) < 9:
+                continue
             chrom, src, feat, start, end, score, strand, phase, attrs = parts
             start, end = int(start), int(end)
             a = parse_attrs(attrs)
-            if feat == "transcript":
-                tx_id = a.get("transcript_id") or a.get("ID")
-                if tx_id:
-                    tx_id = tx_id.split("|")[0]
-                    tx[tx_id] = {"chr": chrom, "strand": strand, "exons": []}
+            tx_id = a.get("transcript_id") or a.get("ID") or a.get("Parent") or a.get("gene_id")
+            if not tx_id:
+                continue
+            tx_id = _core(tx_id)
+            if feat in ("transcript", "mRNA", "gene"):
+                tx.setdefault(tx_id, {"chr": chrom, "strand": strand, "exons": []})
             elif feat == "exon":
-                parent = a.get("transcript_id") or a.get("Parent")
-                if parent:
-                    parent = parent.split("|")[0]
-                    if parent in tx:
-                        tx[parent]["exons"].append((start, end))
-    for d in tx.values():
-        d["exons"].sort(key=lambda x: x[0])
+                parent = a.get("transcript_id") or a.get("Parent") or a.get("ID")
+                parent = _core(parent)
+                tx.setdefault(parent, {"chr": chrom, "strand": strand, "exons": []})
+                tx[parent]["exons"].append((start, end))
+    for v in tx.values():
+        v["exons"].sort(key=lambda x: x[0])
     return tx
+
+    
 
 def load_genome_dict_normalized(fasta_path: str):
     out = {}
@@ -138,18 +153,38 @@ def gene_isoform_summary(sup1a: pd.DataFrame, gene_name: str) -> pd.DataFrame:
     return sub[cols + tpm_cols + ["TPM_mean","rep_support","drg_specificity_score"]] \
              .sort_values("drg_specificity_score", ascending=False)
 
+# gtex_utils.py
 def rnafold_structure(seq):
-    with tempfile.NamedTemporaryFile("w", delete=False) as fh:
-        fh.write(">t\n"+seq+"\n")
-        tmp = fh.name
-    out = subprocess.getoutput(f"RNAfold --noPS < {tmp}")
-    lines = [l for l in out.strip().splitlines() if l.strip()]
-    struct = lines[-1].split()[0]
+    import shutil, tempfile, subprocess, numpy as np
+    # Default: fully open structure, NaN MFE
+    def _open(n): 
+        return "." * n, np.nan
+
+    if not seq:
+        return _open(0)
+
+    # If RNAfold binary isn't present, bail to open structure
+    if shutil.which("RNAfold") is None:
+        return _open(len(seq))
+
     try:
-        mfe = float(lines[-1].split("(")[-1].split(")")[0])
+        with tempfile.NamedTemporaryFile("w", delete=False) as fh:
+            fh.write(">t\n" + seq + "\n")
+            tmp = fh.name
+        out = subprocess.getoutput(f"RNAfold --noPS < {tmp}")
+        lines = [l for l in out.strip().splitlines() if l.strip()]
+        struct = lines[-1].split()[0] if lines else "." * len(seq)
+        try:
+            mfe = float(lines[-1].split("(")[-1].split(")")[0])
+        except Exception:
+            mfe = np.nan
+        # sanity: ensure struct length matches seq
+        if len(struct) != len(seq):
+            struct = "." * len(seq)
+        return struct, mfe
     except Exception:
-        mfe = np.nan
-    return struct, mfe
+        return _open(len(seq))
+        
 
 def find_open_windows(seq, struct, win=18, cutoff=0.80):
     rows = []

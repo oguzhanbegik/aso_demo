@@ -1,2 +1,0 @@
-vienna-rna
-git-lfs
