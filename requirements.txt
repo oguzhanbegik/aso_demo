@@ -10,4 +10,5 @@ scikit-learn
 shap
 umap
 tomli>=2.0.1
+huggingface_hub==0.26.2
 #ViennaRNA>=2.6       # Python bindings; optional but nice to have
