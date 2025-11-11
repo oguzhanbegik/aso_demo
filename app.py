@@ -613,9 +613,9 @@ def page_aso_design():
     if not sup1a.empty:
         table = gene_isoform_summary(sup1a, gene)
         if not table.empty:
-            st.dataframe(table, use_container_width=True, height=300)
+            st.dataframe(table, width="stretch", height=300)
             fig = plot_replicate_tpms_matplotlib(table, gene)
-            if fig: st.pyplot(fig, clear_figure=True, use_container_width=True)
+            if fig: st.pyplot(fig, clear_figure=True, width="stretch")
     else:
         st.caption("Sup1A not found; isoform TPMs skipped.")
 
@@ -638,7 +638,7 @@ def page_aso_design():
             target_pbid = spans[0][0]
 
         fig = plot_isoform_schematic_fast(isoforms, target_pbid=target_pbid, gtf_regions=None, title=f"{gene} — isoforms (GFF)")
-        if fig: st.pyplot(fig, clear_figure=True, use_container_width=True)
+        if fig: st.pyplot(fig, clear_figure=True, width="stretch")
     else:
         st.warning("No isoforms found for this gene in GFF."); return
 
@@ -725,7 +725,7 @@ def page_aso_design():
         # plots
         # ---- Plots: pairing depth + gray structures with colored ASOs
         fig_depth = plot_pairing_depth_line(struct, cand)
-        st.plotly_chart(fig_depth, use_container_width=True)
+        st.plotly_chart(fig_depth, width="stretch")
 
         # convert end (exclusive) -> inclusive index and clamp to [0, n-1]
         n = len(struct)
@@ -737,18 +737,18 @@ def page_aso_design():
                 spans.append((s, e))
 
         # interactive structure plots
-        st.plotly_chart(arc_plot_interactive(struct, spans),    use_container_width=True)
-        st.plotly_chart(circle_plot_interactive(struct, spans), use_container_width=True)
+        st.plotly_chart(arc_plot_interactive(struct, spans),    width="stretch")
+        st.plotly_chart(circle_plot_interactive(struct, spans), width="stretch")
 
         st.subheader(f"Top {len(cand)} ASO candidates")
         show = cand[["start","end","ASO_DNA_5to3","Tm_Wallace","GC_frac","open_frac","mean_depth"]]
-        st.dataframe(show, use_container_width=True, height=320)
+        st.dataframe(show, height=300, width="stretch")
         st.download_button(
             "⬇️ Download ASOs (CSV)",
             cand.to_csv(index=False).encode(),
             file_name=f"{gene}_ASO_candidates_{k}mer.csv",
             mime="text/csv",
-            use_container_width=True
+            width="stretch"
         )
     else:
         st.info("No suitable windows at current length; try a shorter k or disable FAST_MODE temporarily.")
@@ -830,11 +830,12 @@ PAGES = {
 
 with st.sidebar:
     st.subheader("Navigation")
-    choice = st.radio("", list(PAGES.keys()), index=0)
-
-    # (optional) a thin separator if you like
-    # st.divider()
-
+    choice = st.radio(
+        "Choose a page",                  # non-empty label (you can hide it)
+        list(PAGES.keys()),
+        index=0,
+        label_visibility="collapsed",     # hides the label but satisfies accessibility
+    )
     st.caption("Shortlist (designable): " + shortlist_preview_text())
 
 # Router

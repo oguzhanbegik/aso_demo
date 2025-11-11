@@ -8,7 +8,7 @@ mygene>=3.2
 matplotlib>=3.8
 scikit-learn 
 shap
-umap
+umap-learn==0.5.6
 tomli>=2.0.1
 huggingface_hub==0.26.2
-#ViennaRNA>=2.6       # Python bindings; optional but nice to have
+#ViennaRNA>=2.6
