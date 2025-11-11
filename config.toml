@@ -1,0 +1,26 @@
+# config.toml
+rnaplot = "/opt/miniconda3/envs/drg_demo/bin/RNAplot"
+
+
+
+[paths]
+gtex_median = "data/reference/GTEx_Analysis_v10_RNASeQCv2.4.2_gene_median_tpm.gct.gz"
+gff        = "data/raw/LRS_hDRG_clustered.aligned.collapsed.gff"
+gtf        = "data/reference/Homo_sapiens.GRCh38.115.chr.gtf"
+fasta      = "data/reference/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
+sup1a      = "data/raw/SupplementaryTable_1A.xlsx"
+sup1b      = "data/raw/SupplementaryTable_1B.xlsx"
+hpo        = "data/pain/HP_0012531_associations_export.tsv"
+clinvar_a  = "data/pain/ShinyClinVar_PAIN_2025-11-07.csv"
+clinvar_b  = "data/pain/ShinyClinVar_PAIN_2025-11-07_.csv"
+
+[constants]
+spinal_tissue = "Brain_Spinal_cord_cervical_c-1"
+
+[theme]
+base="dark"
+primaryColor="#fb923c"
+backgroundColor="#0f172a"
+secondaryBackgroundColor="#1e293b"
+textColor="#f8fafc"
+font="sans serif"
