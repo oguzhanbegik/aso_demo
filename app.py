@@ -10,6 +10,11 @@ import streamlit as st
 from Bio import SeqIO
 from Bio.Seq import Seq
 
+# Detect Streamlit Cloud (used above)
+if "STREAMLIT_CLOUD" not in os.environ:
+    os.environ["STREAMLIT_CLOUD"] = "true" if "streamlit.app" in os.getenv("STREAMLIT_SERVER_ADDRESS", "") else "false"
+
+    
 FAST_MODE = True          # set False if you want full-length folding
 FOLD_LEN_CAP = 4000       # fold at most this many nt (after trimming)
 PRESELECT_N = 300         # windows kept before uniqueness check
@@ -314,6 +319,23 @@ FOLD_LEN_CAP  = 4000        # max nt to fold in FAST_MODE
 PRESELECT_N   = 300         # windows kept before uniqueness check
 TOP_N_ASOS    = 10          # final ASO count
 
+# NEW: prefer collapsed cDNA FASTA on Streamlit Cloud
+cdna_hf_rel = "data/reference/LRS_hDRG_cdna.fa.gz"     # <-- your upload
+cdna_local  = os.path.join(REF_DIR, "LRS_hDRG_cdna.fa.gz")
+
+# Try to fetch the cDNA FASTA first (much smaller than the 3-GB genome)
+cdna_fa = None
+try:
+    cdna_fa = ensure_hf_file(
+        HF_REPO, cdna_hf_rel, cdna_local,
+        min_bytes=5_000_000,          # ~5 MB guard
+        expect_fasta=True
+    )
+except Exception:
+    cdna_fa = None  # fall back below
+
+
+
 
 def arc_plot_interactive(struct: str, highlights: list[tuple[int,int]], title="Secondary structure — arc (interactive)"):
     import numpy as np, plotly.graph_objects as go
@@ -557,9 +579,31 @@ def page_aso_design():
     gff_hf_rel = "data/raw/LRS_hDRG_clustered.aligned.collapsed.gff"
 
     # Download (first run) or reuse (cached) — adjust size guards if your files differ
-    fa  = ensure_hf_file(HF_REPO, fa_hf_rel,  fa_local,  min_bytes=3_000_000_000, expect_fasta=True)
+    # Download only the GFF (always small)
     gff = ensure_hf_file(HF_REPO, gff_hf_rel, gff_local, min_bytes=1_000_000)
 
+    # Try collapsed cDNA FASTA first (tiny, safe for Streamlit Cloud)
+    cdna_hf_rel = "data/reference/LRS_hDRG_cdna.fa.gz"      # <– from HF
+    cdna_local  = os.path.join(REF_DIR, "LRS_hDRG_cdna.fa.gz")
+    cdna_fa = None
+    try:
+        cdna_fa = ensure_hf_file(
+            HF_REPO, cdna_hf_rel, cdna_local,
+            min_bytes=5_000_000, expect_fasta=True
+        )
+        st.info("Using collapsed transcriptome FASTA (no genome download).")
+    except Exception as e:
+        st.warning(f"Collapsed FASTA unavailable → {e}")
+        cdna_fa = None
+
+    # Only fetch huge genome locally (never on Streamlit)
+    fa = None
+    if not os.environ.get("STREAMLIT_CLOUD", "").lower().startswith("true") and not cdna_fa:
+        fa  = ensure_hf_file(HF_REPO, fa_hf_rel,  fa_local,  min_bytes=3_000_000_000, expect_fasta=True)
+    else:
+        if not cdna_fa:
+            st.error("Genome FASTA disabled in cloud mode and no cDNA FASTA found.")
+            return
 
 
     if not (os.path.exists(fa) and os.path.exists(gff)):
@@ -578,15 +622,16 @@ def page_aso_design():
         st.info("Shortlist a gene first, then select it here.")
         return
 
-    # Load genome + isoforms from GFF
-    ref = load_genome_dict_normalized(fa)
-    tx_map = parse_gff_fast(gff)
-    # ---- DEBUG: inspect GFF transcript coverage ----
-    import pandas as pd
-    st.write("Number of transcripts parsed:", len(tx_map))
-    if len(tx_map) > 0:
-        sample_keys = list(tx_map.keys())[:5]
-        st.write("Sample transcript IDs:", sample_keys)
+        # Load genome + isoforms from GFF
+    # --- Genome/GFF bookkeeping still used for schematics and alt isoforms
+    ref      = None
+    tx_map   = parse_gff_fast(gff)   # unchanged; we still want exon schematic + isoform list
+
+    # If we have the collapsed cDNA FASTA, use it for sequence retrieval
+    ref_cdna = None
+    if cdna_fa and os.path.exists(cdna_fa):
+        ref_cdna = load_fasta_dict(cdna_fa)  # keys are PBIDs (e.g., "PB.1.3")
+
 
     # load sup1a to see what pbids the gene uses
     # Where Sup1A lives in the HF dataset and locally
@@ -642,17 +687,29 @@ def page_aso_design():
     else:
         st.warning("No isoforms found for this gene in GFF."); return
 
-    # ---- Build cDNA of the target isoform only (GFF → exons)
-    t_rec = next((t for t in isoforms if t[0].split("|")[0] == str(target_pbid).split("|")[0]), isoforms[0])
-    _pbid, exons, chrom, strand = t_rec
-    chrom = _normalize_chrom(chrom, ref)
-    if chrom not in ref:
-        st.error(f"Chromosome {chrom} not in FASTA (after normalization)."); return
 
-    chseq = ref[chrom].seq
-    seq   = "".join(str(chseq[int(s)-1:int(e)]) for (s, e) in sorted(exons))
-    if strand == "-":
-        seq = str(Seq(seq).reverse_complement())
+    # If we have the collapsed cDNA FASTA, use PBID directly
+    seq = None
+    core_id = str(target_pbid).split("|")[0]
+    if cdna_fa and os.path.exists(cdna_fa):
+        ref_cdna = load_fasta_dict(cdna_fa)
+        if core_id in ref_cdna:
+            seq = str(ref_cdna[core_id].seq)
+            st.caption(f"Loaded transcript {core_id} from collapsed cDNA FASTA.")
+
+
+    # ---- Build cDNA of the target isoform only (GFF → exons)
+    # Fallback to genomic stitching if needed
+    if seq is None:
+        t_rec = next((t for t in isoforms if t[0].split("|")[0] == core_id), isoforms[0])
+        _pbid, exons, chrom, strand = t_rec
+        chrom = _normalize_chrom(chrom, ref)
+        if chrom not in ref:
+            st.error(f"Chromosome {chrom} not in FASTA (after normalization)."); return
+        chseq = ref[chrom].seq
+        seq   = "".join(str(chseq[int(s)-1:int(e)]) for (s, e) in sorted(exons))
+        if strand == "-":
+            seq = str(Seq(seq).reverse_complement())
 
     # optional trim for folding
     if FAST_MODE and len(seq) > FOLD_LEN_CAP:
