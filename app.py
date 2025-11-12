@@ -223,6 +223,7 @@ def gene_col(df):
 def page_home():
     st.title("Plug-and-Play ASO Decision Demo (Pain/DRG)")
     st.markdown("""
+Developed by Oguzhan Begik, 12 november 2025
 This app helps you **prioritize antisense oligonucleotide (ASO) targets** for **pain** using public and study-specific evidence.  
 The workflow is split across pages; **use the sidebar** to navigate.
 
@@ -244,7 +245,7 @@ The workflow is split across pages; **use the sidebar** to navigate.
 
 **What can be added in time?**  
 - More sophisticated structure analysis (DMS, SHAPE etc).
-- More through isoform analysis.
+- More through isoform analysis in order to choose the right isoform to target.
 - Using RNA-FM (Foundation Model) in order to optimise the ASO design.
 - Calculate ASO efficiency scores via integrating AI tools (for example, including chemistry metrics of the ASO molecule). Give the option to choose the modified nucleotides.
 - Using spatial transcriptomics and other scRNA sequencing datasets to assess the cell-specific expression of RNAs better
