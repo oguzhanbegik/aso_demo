@@ -588,41 +588,47 @@ def page_aso_design():
     fa_hf_rel  = "data/reference/Homo_sapiens.GRCh38.dna.primary_assembly.fa"
     gff_hf_rel = "data/raw/LRS_hDRG_clustered.aligned.collapsed.gff"
 
-    # Download (first run) or reuse (cached) — adjust size guards if your files differ
-    # Download only the GFF (always small)
+
+    # Download (first run) or reuse (cached)
     gff = ensure_hf_file(HF_REPO, gff_hf_rel, gff_local, min_bytes=1_000_000)
 
-    # Try collapsed cDNA FASTA first (tiny, safe for Streamlit Cloud)
-    cdna_hf_rel = "data/reference/LRS_hDRG_cdna.fa.gz"      # <– from HF
+    # Prefer collapsed cDNA FASTA (works on Streamlit Cloud)
+    cdna_hf_rel = "data/reference/LRS_hDRG_cdna.fa.gz"
     cdna_local  = os.path.join(REF_DIR, "LRS_hDRG_cdna.fa.gz")
+
     cdna_fa = None
     try:
-        cdna_fa = ensure_hf_file(
-            HF_REPO, cdna_hf_rel, cdna_local,
-            min_bytes=5_000_000, expect_fasta=True
-        )
+        cdna_fa = ensure_hf_file(HF_REPO, cdna_hf_rel, cdna_local,
+                                 min_bytes=5_000_000, expect_fasta=True)
         st.info("Using collapsed transcriptome FASTA (no genome download).")
     except Exception as e:
         st.warning(f"Collapsed FASTA unavailable → {e}")
         cdna_fa = None
 
-
-    # Only fetch huge genome locally (never on Streamlit)
+    # Only fetch the genome FASTA if we really need it and we’re not on Cloud
     fa = None
-    if not os.environ.get("STREAMLIT_CLOUD", "").lower().startswith("true") and not cdna_fa:
-        fa  = ensure_hf_file(HF_REPO, fa_hf_rel,  fa_local,  min_bytes=3_000_000_000, expect_fasta=True)
-    else:
-        if not cdna_fa:
-            st.error("Genome FASTA disabled in cloud mode and no cDNA FASTA found.")
-            return
+    if not cdna_fa and os.environ.get("STREAMLIT_CLOUD", "").lower().startswith("true"):
+        st.error("No collapsed cDNA FASTA found and genome FASTA is disabled in cloud mode.")
+        return
+    if not cdna_fa:
+        fa = ensure_hf_file(HF_REPO, fa_hf_rel, fa_local,
+                            min_bytes=3_000_000_000, expect_fasta=True)
 
+    # Load references conditionally
     ref = None
-    if 'fa' in locals() and fa and os.path.exists(fa):
-        ref = load_fasta_dict(fa)
+    if fa and os.path.exists(fa):
+        ref = load_fasta_dict(fa)            # genome dictionary
 
+    ref_cdna = None
+    if cdna_fa and os.path.exists(cdna_fa):
+        ref_cdna = load_fasta_dict(cdna_fa)  # collapsed transcriptome dictionary
 
-    if not (os.path.exists(fa) and os.path.exists(gff)):
-        st.warning("Need reference FASTA and GFF. Check config/data paths.")
+    # Sanity: must have GFF and at least one reference (cDNA or genome)
+    if not os.path.exists(gff):
+        st.warning("GFF not found — check paths.")
+        return
+    if not (ref_cdna or ref):
+        st.warning("Need either collapsed cDNA FASTA or genome FASTA.")
         return
 
     # Gene selector
@@ -641,11 +647,6 @@ def page_aso_design():
     # --- Genome/GFF bookkeeping still used for schematics and alt isoforms
     ref      = None
     tx_map   = parse_gff_fast(gff)   # unchanged; we still want exon schematic + isoform list
-
-    # If we have the collapsed cDNA FASTA, use it for sequence retrieval
-    ref_cdna = None
-    if cdna_fa and os.path.exists(cdna_fa):
-        ref_cdna = load_fasta_dict(cdna_fa)  # keys are PBIDs (e.g., "PB.1.3")
 
 
     # load sup1a to see what pbids the gene uses
@@ -703,95 +704,79 @@ def page_aso_design():
         st.warning("No isoforms found for this gene in GFF."); return
 
 
-    # If we have the collapsed cDNA FASTA, use PBID directly
+    # ---- Pick the target transcript record from isoforms
+    t_rec = next((t for t in isoforms if t[0].split("|")[0] == str(target_pbid).split("|")[0]), isoforms[0])
+    _pbid, exons, chrom, strand = t_rec
+    core_id = str(_pbid).split("|")[0]
+
+    # ---- Get cDNA sequence (prefer collapsed FASTA)
     seq = None
-    core_id = str(target_pbid).split("|")[0]
-    if cdna_fa and os.path.exists(cdna_fa):
-        ref_cdna = load_fasta_dict(cdna_fa)
-        if core_id in ref_cdna:
-            seq = str(ref_cdna[core_id].seq)
-            st.caption(f"Loaded transcript {core_id} from collapsed cDNA FASTA.")
+    if ref_cdna and core_id in ref_cdna:
+        seq = str(ref_cdna[core_id].seq)
+        st.caption(f"Loaded transcript {core_id} from collapsed cDNA FASTA.")
 
-
-    # ---- Build cDNA of the target isoform only (GFF → exons)
-    # Fallback to genomic stitching if needed
+    # ---- Fallback: stitch from genome
     if seq is None:
-        # ---- Pick target isoform
-        t_rec = next((t for t in isoforms if t[0].split("|")[0] == str(target_pbid).split("|")[0]), isoforms[0])
-        _pbid, exons, chrom, strand = t_rec
-        core_id = str(_pbid).split("|")[0]
+        if ref is None:
+            st.error("No transcript sequence available: collapsed cDNA not found and genome FASTA not loaded.")
+            return
+        chrom_norm = _normalize_chrom(chrom, ref)
+        if chrom_norm not in ref:
+            st.error(f"Chromosome {chrom_norm} not in genome FASTA (after normalization).")
+            return
+        chseq = ref[chrom_norm].seq
+        seq   = "".join(str(chseq[int(s)-1:int(e)]) for (s, e) in sorted(exons))
+        if strand == "-":
+            seq = str(Seq(seq).reverse_complement())
 
-        # ---- Try collapsed cDNA FASTA first
-        seq = None
-        if cdna_fa and os.path.exists(cdna_fa):
-            ref_cdna = load_fasta_dict(cdna_fa)  # handles .gz
-            if core_id in ref_cdna:
-                seq = str(ref_cdna[core_id].seq)
-                st.caption(f"Loaded transcript {core_id} from collapsed cDNA FASTA.")
 
-        # ---- Fallback to genomic stitching only if cDNA missing
-        if seq is None:
-            if ref is None:
-                st.error("No transcript sequence available: collapsed cDNA not found and genome FASTA not loaded.")
-                return
-            chrom_norm = _normalize_chrom(chrom, ref)  # <-- now ref is guaranteed
-            if chrom_norm not in ref:
-                st.error(f"Chromosome {chrom_norm} not in FASTA (after normalization).")
-                return
-            chseq = ref[chrom_norm].seq
-            seq   = "".join(str(chseq[int(s)-1:int(e)]) for (s, e) in sorted(exons))
-            if strand == "-":
-                seq = str(Seq(seq).reverse_complement())
 
-    # optional trim for folding (unchanged)
+    # optional trim for folding
     if FAST_MODE and len(seq) > FOLD_LEN_CAP:
         mid  = len(seq)//2
         half = FOLD_LEN_CAP//2
         seq  = seq[max(0, mid-half):mid+half]
 
-            # ---- Fold (cache by gene|pbid|len|k|cap|FAST_MODE)
-        key   = f"{gene}|{_pbid}|{len(seq)}|{k}|{FOLD_LEN_CAP}|{FAST_MODE}"
-        cache = st.session_state.setdefault("fold_cache", {})
-        if key in cache:
-            struct, mfe = cache[key]
-        else:
-            struct, mfe = rnafold_structure(seq.replace("T", "U"))
-            cache[key]  = (struct, mfe)
+    # ---- Fold (cache by gene|pbid|len|k|cap|FAST_MODE)
+    key   = f"{gene}|{core_id}|{len(seq)}|{k}|{FOLD_LEN_CAP}|{FAST_MODE}"
+    cache = st.session_state.setdefault("fold_cache", {})
+    if key in cache:
+        struct, mfe = cache[key]
+    else:
+        struct, mfe = rnafold_structure(seq.replace("T", "U"))
+        cache[key]  = (struct, mfe)
 
-        # ONE caption/warning block only (use cached result)
-        if not struct or set(struct) == {"."}:
-            st.warning("ViennaRNA/RNAfold not available on this host — using open-structure fallback for ranking. Results are approximate.")
-        else:
-            st.caption(f"RNAfold MFE ≈ {mfe:.2f} kcal/mol on stitched cDNA of target isoform.")
+    # ONE caption/warning block only (use cached result)
+    if not struct or set(struct) == {"."}:
+        st.warning("ViennaRNA/RNAfold not available — using open-structure fallback for ranking.")
+    else:
+        st.caption(f"RNAfold MFE ≈ {mfe:.2f} kcal/mol on stitched cDNA of target isoform.")
 
+    # ---- Score windows (structure-first), then uniqueness only on preselected
+    seq_U  = seq.replace("T", "U")
+    ranked = _rank_windows_fast(seq_U, struct, k, preselect=PRESELECT_N)
 
-        # ---- Score windows (structure-first), then uniqueness only on preselected
-        seq_U  = seq.replace("T", "U")
-        ranked = _rank_windows_fast(seq_U, struct, k, preselect=PRESELECT_N)
-
-        # build other isoform sequences (RNA alphabet) for uniqueness
-        other_iso = []
-        if cdna_fa and os.path.exists(cdna_fa):
-            # use collapsed cDNA by PBID core
-            for (pb, exs, ch, stn) in isoforms:
-                pb_core = str(pb).split("|")[0]
-                if pb_core == core_id:
-                    continue
-                if pb_core in ref_cdna:
-                    other_iso.append(str(ref_cdna[pb_core].seq).replace("T", "U"))
-        else:
-            # fallback: stitch from genome if available
-            if ref is not None:
-                for (pb, exs, ch, stn) in isoforms:
-                    if pb == _pbid:
-                        continue
-                    ch2 = _normalize_chrom(ch, ref)
-                    if ch2 not in ref:
-                        continue
-                    s2 = "".join(str(ref[ch2].seq[int(a)-1:int(b)]) for (a, b) in sorted(exs))
-                    if stn == "-":
-                        s2 = str(Seq(s2).reverse_complement())
-                    other_iso.append(s2.replace("T", "U"))
+    # Build other-isoform sequences (RNA alphabet) for uniqueness
+    other_iso = []
+    if ref_cdna:
+        for (pb, exs, ch, stn) in isoforms:
+            pb_core = str(pb).split("|")[0]
+            if pb_core == core_id:
+                continue
+            if pb_core in ref_cdna:
+                other_iso.append(str(ref_cdna[pb_core].seq).replace("T", "U"))
+    elif ref is not None:
+        for (pb, exs, ch, stn) in isoforms:
+            if str(pb).split("|")[0] == core_id:
+                continue
+            ch2 = _normalize_chrom(ch, ref)
+            if ch2 not in ref:
+                continue
+            s2 = "".join(str(ref[ch2].seq[int(a)-1:int(b)]) for (a, b) in sorted(exs))
+            if stn == "-":
+                s2 = str(Seq(s2).reverse_complement())
+            other_iso.append(s2.replace("T", "U"))
+     
 
     if not ranked.empty:
         # ---- prepare the columns expected by uniqueness_vs_isoforms()
