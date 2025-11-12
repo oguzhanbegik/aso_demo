@@ -242,7 +242,7 @@ The workflow is split across pages; **use the sidebar** to navigate.
 - On each page, **scroll to the end** to add a gene via a dropdown to the shared **Shortlist**.  
 - In **Shortlist**, pick a gene to jump into **ASO Design**.  
 
-**What can be added in time? **  
+**What can be added in time?**  
 - More sophisticated structure analysis (DMS, SHAPE etc).
 - More through isoform analysis.
 - Using RNA-FM (Foundation Model) in order to optimise the ASO design.
