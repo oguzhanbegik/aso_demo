@@ -738,55 +738,55 @@ def page_aso_design():
             if strand == "-":
                 seq = str(Seq(seq).reverse_complement())
 
-# optional trim for folding (unchanged)
-if FAST_MODE and len(seq) > FOLD_LEN_CAP:
-    mid  = len(seq)//2
-    half = FOLD_LEN_CAP//2
-    seq  = seq[max(0, mid-half):mid+half]
+    # optional trim for folding (unchanged)
+    if FAST_MODE and len(seq) > FOLD_LEN_CAP:
+        mid  = len(seq)//2
+        half = FOLD_LEN_CAP//2
+        seq  = seq[max(0, mid-half):mid+half]
 
-        # ---- Fold (cache by gene|pbid|len|k|cap|FAST_MODE)
-    key   = f"{gene}|{_pbid}|{len(seq)}|{k}|{FOLD_LEN_CAP}|{FAST_MODE}"
-    cache = st.session_state.setdefault("fold_cache", {})
-    if key in cache:
-        struct, mfe = cache[key]
-    else:
-        struct, mfe = rnafold_structure(seq.replace("T", "U"))
-        cache[key]  = (struct, mfe)
+            # ---- Fold (cache by gene|pbid|len|k|cap|FAST_MODE)
+        key   = f"{gene}|{_pbid}|{len(seq)}|{k}|{FOLD_LEN_CAP}|{FAST_MODE}"
+        cache = st.session_state.setdefault("fold_cache", {})
+        if key in cache:
+            struct, mfe = cache[key]
+        else:
+            struct, mfe = rnafold_structure(seq.replace("T", "U"))
+            cache[key]  = (struct, mfe)
 
-    # ONE caption/warning block only (use cached result)
-    if not struct or set(struct) == {"."}:
-        st.warning("ViennaRNA/RNAfold not available on this host — using open-structure fallback for ranking. Results are approximate.")
-    else:
-        st.caption(f"RNAfold MFE ≈ {mfe:.2f} kcal/mol on stitched cDNA of target isoform.")
+        # ONE caption/warning block only (use cached result)
+        if not struct or set(struct) == {"."}:
+            st.warning("ViennaRNA/RNAfold not available on this host — using open-structure fallback for ranking. Results are approximate.")
+        else:
+            st.caption(f"RNAfold MFE ≈ {mfe:.2f} kcal/mol on stitched cDNA of target isoform.")
 
 
-    # ---- Score windows (structure-first), then uniqueness only on preselected
-    seq_U  = seq.replace("T", "U")
-    ranked = _rank_windows_fast(seq_U, struct, k, preselect=PRESELECT_N)
+        # ---- Score windows (structure-first), then uniqueness only on preselected
+        seq_U  = seq.replace("T", "U")
+        ranked = _rank_windows_fast(seq_U, struct, k, preselect=PRESELECT_N)
 
-    # build other isoform sequences (RNA alphabet) for uniqueness
-    other_iso = []
-    if cdna_fa and os.path.exists(cdna_fa):
-        # use collapsed cDNA by PBID core
-        for (pb, exs, ch, stn) in isoforms:
-            pb_core = str(pb).split("|")[0]
-            if pb_core == core_id:
-                continue
-            if pb_core in ref_cdna:
-                other_iso.append(str(ref_cdna[pb_core].seq).replace("T", "U"))
-    else:
-        # fallback: stitch from genome if available
-        if ref is not None:
+        # build other isoform sequences (RNA alphabet) for uniqueness
+        other_iso = []
+        if cdna_fa and os.path.exists(cdna_fa):
+            # use collapsed cDNA by PBID core
             for (pb, exs, ch, stn) in isoforms:
-                if pb == _pbid:
+                pb_core = str(pb).split("|")[0]
+                if pb_core == core_id:
                     continue
-                ch2 = _normalize_chrom(ch, ref)
-                if ch2 not in ref:
-                    continue
-                s2 = "".join(str(ref[ch2].seq[int(a)-1:int(b)]) for (a, b) in sorted(exs))
-                if stn == "-":
-                    s2 = str(Seq(s2).reverse_complement())
-                other_iso.append(s2.replace("T", "U"))
+                if pb_core in ref_cdna:
+                    other_iso.append(str(ref_cdna[pb_core].seq).replace("T", "U"))
+        else:
+            # fallback: stitch from genome if available
+            if ref is not None:
+                for (pb, exs, ch, stn) in isoforms:
+                    if pb == _pbid:
+                        continue
+                    ch2 = _normalize_chrom(ch, ref)
+                    if ch2 not in ref:
+                        continue
+                    s2 = "".join(str(ref[ch2].seq[int(a)-1:int(b)]) for (a, b) in sorted(exs))
+                    if stn == "-":
+                        s2 = str(Seq(s2).reverse_complement())
+                    other_iso.append(s2.replace("T", "U"))
 
     if not ranked.empty:
         # ---- prepare the columns expected by uniqueness_vs_isoforms()
