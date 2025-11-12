@@ -59,10 +59,15 @@ def ensure_hf_file(repo_id: str, filename: str, out_path: str,
         raise RuntimeError(f"{filename}: too small or missing after download (got {sz} bytes).")
 
     if expect_fasta:
-        with open(out_path, "rb") as fh:
-            b = fh.read(1)
-        if b != b">":
-            raise RuntimeError(f"{filename}: not a FASTA (no leading '>').")
+        import gzip
+        try:
+            opener = gzip.open if out_path.endswith(".gz") else open
+            with opener(out_path, "rt") as fh:
+                first = fh.read(1)
+            if first != ">":
+                raise RuntimeError(f"{filename}: not a FASTA (no leading '>').")
+        except Exception as e:
+            raise RuntimeError(f"{filename}: could not verify FASTA → {e}")
 
     return out_path
 
