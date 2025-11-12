@@ -4,7 +4,7 @@ import io
 import gzip
 import re
 from typing import List, Tuple, Dict
-
+import shutil
 import pandas as pd
 import streamlit as st
 from Bio import SeqIO
@@ -746,12 +746,11 @@ def page_aso_design():
         struct, mfe = rnafold_structure(seq.replace("T", "U"))
         cache[key]  = (struct, mfe)
 
-    # ONE caption/warning block only (use cached result)
-    if not struct or set(struct) == {"."}:
-        st.warning("ViennaRNA/RNAfold not available — using open-structure fallback for ranking.")
+    backend = "ViennaRNA (Python)" if "RNA" in sys.modules else ("RNAfold CLI" if shutil.which("RNAfold") else "fallback")
+    if backend == "fallback" or (not struct or set(struct) == {"."}):
+        st.warning("ViennaRNA not available — using open-structure fallback for ranking.")
     else:
-        st.caption(f"RNAfold MFE ≈ {mfe:.2f} kcal/mol on stitched cDNA of target isoform.")
-
+        st.caption(f"Structure backend: {backend}. MFE ≈ {mfe:.2f} kcal/mol.")
     # ---- Score windows (structure-first), then uniqueness only on preselected
     seq_U  = seq.replace("T", "U")
     ranked = _rank_windows_fast(seq_U, struct, k, preselect=PRESELECT_N)

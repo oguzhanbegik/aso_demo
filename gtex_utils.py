@@ -153,38 +153,58 @@ def gene_isoform_summary(sup1a: pd.DataFrame, gene_name: str) -> pd.DataFrame:
     return sub[cols + tpm_cols + ["TPM_mean","rep_support","drg_specificity_score"]] \
              .sort_values("drg_specificity_score", ascending=False)
 
+
 # gtex_utils.py
-def rnafold_structure(seq):
-    import shutil, tempfile, subprocess, numpy as np
-    # Default: fully open structure, NaN MFE
-    def _open(n): 
+def rnafold_structure(seq: str):
+    """
+    Return (dot_bracket, mfe_kcalmol) for an RNA sequence.
+    Prefers ViennaRNA Python bindings (works on Streamlit Cloud with pip).
+    Falls back to RNAfold CLI if present. Otherwise returns open structure.
+    """
+    import numpy as np
+
+    def _open(n):
         return "." * n, np.nan
 
     if not seq:
         return _open(0)
 
-    # If RNAfold binary isn't present, bail to open structure
-    if shutil.which("RNAfold") is None:
-        return _open(len(seq))
+    s = seq.replace("T", "U")
 
+    # 1) Try ViennaRNA Python bindings (pip package: viennarna -> module name: RNA)
     try:
-        with tempfile.NamedTemporaryFile("w", delete=False) as fh:
-            fh.write(">t\n" + seq + "\n")
-            tmp = fh.name
-        out = subprocess.getoutput(f"RNAfold --noPS < {tmp}")
-        lines = [l for l in out.strip().splitlines() if l.strip()]
-        struct = lines[-1].split()[0] if lines else "." * len(seq)
-        try:
-            mfe = float(lines[-1].split("(")[-1].split(")")[0])
-        except Exception:
-            mfe = np.nan
-        # sanity: ensure struct length matches seq
-        if len(struct) != len(seq):
-            struct = "." * len(seq)
-        return struct, mfe
+        import RNA  # from viennarna
+        # Fast single-sequence MFE
+        ss, mfe = RNA.fold(s)          # returns (structure, mfe)
+        if len(ss) != len(s):
+            ss = "." * len(s)
+        return ss, float(mfe)
     except Exception:
-        return _open(len(seq))
-        
+        pass
+
+    # 2) Try ViennaRNA CLI if present
+    try:
+        import shutil, subprocess, tempfile
+        if shutil.which("RNAfold") is not None:
+            with tempfile.NamedTemporaryFile("w", delete=False) as fh:
+                fh.write(">t\n" + s + "\n")
+                tmp = fh.name
+            out = subprocess.getoutput(f"RNAfold --noPS < {tmp}")
+            lines = [l for l in out.strip().splitlines() if l.strip()]
+            struct = lines[-1].split()[0] if lines else "." * len(s)
+            try:
+                mfe = float(lines[-1].split("(")[-1].split(")")[0])
+            except Exception:
+                mfe = np.nan
+            if len(struct) != len(s):
+                struct = "." * len(s)
+            return struct, mfe
+    except Exception:
+        pass
+
+    # 3) Last resort: fully open structure
+    return _open(len(s))
+    
 
 def find_open_windows(seq, struct, win=18, cutoff=0.80):
     rows = []
