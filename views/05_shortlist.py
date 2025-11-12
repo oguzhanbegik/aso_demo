@@ -77,7 +77,7 @@ def run(add_to_shortlist_fn, REF_DIR: str):
     df = pd.DataFrame(rows).sort_values(["Priority","Gene"], ascending=[False, True])
 
     st.subheader("Current shortlist")
-    st.dataframe(df, use_container_width=True, height=440)
+    st.dataframe(df, width="stretch", height=440)
 
     st.divider()
     st.subheader("Edit notes / priority")
@@ -100,7 +100,7 @@ def run(add_to_shortlist_fn, REF_DIR: str):
     st.divider()
     csv_bytes = df.to_csv(index=False).encode()
     st.download_button("⬇️ Download shortlist (CSV)", data=csv_bytes,
-                       file_name="aso_shortlist.csv", mime="text/csv", use_container_width=True)
+                       file_name="aso_shortlist.csv", mime="text/csv")
 
     # Choose gene to proceed to ASO design
     st.subheader("Proceed to ASO Design")

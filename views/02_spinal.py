@@ -53,17 +53,17 @@ def run(add_to_shortlist_fn):
                    ascending=[False, False, False])
 
     st.caption("High τ + high ΔTPM indicates spinal-enriched candidates.")
-    st.dataframe(rank.head(500), use_container_width=True, height=420)
+    st.dataframe(rank.head(500), height=420)
 
     # ---- Added: density + quick histogram for interpretability
     st.subheader("Distributions (quick sanity checks)")
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.plotly_chart(px.histogram(rank, x="tau", nbins=40, title="τ specificity"), use_container_width=True)
+        st.plotly_chart(px.histogram(rank, x="tau", nbins=40, title="τ specificity"))
     with c2:
-        st.plotly_chart(px.histogram(rank, x="delta_spinal_vs_medianother", nbins=40, title="Δ vs max other"), use_container_width=True)
+        st.plotly_chart(px.histogram(rank, x="delta_spinal_vs_medianother", nbins=40, title="Δ vs max other"))
     with c3:
-        st.plotly_chart(px.histogram(rank, x="spinal_tpm", nbins=40, title="Spinal TPM"), use_container_width=True)
+        st.plotly_chart(px.histogram(rank, x="spinal_tpm", nbins=40, title="Spinal TPM"))
 
     # ---- top N table + scatter
     TOPN = 200
@@ -76,7 +76,7 @@ def run(add_to_shortlist_fn):
 
     rank_top = _top200(rank)
     st.caption(f"Showing top {len(rank_top)} genes.")
-    st.dataframe(rank_top, use_container_width=True, height=420)
+    st.dataframe(rank_top, width="stretch", height=420)
 
     fig = px.scatter(
         rank_top,
@@ -95,7 +95,7 @@ def run(add_to_shortlist_fn):
     fig.update_layout(margin=dict(l=10, r=10, t=40, b=10),
                       xaxis_title=SPINAL + " (median TPM)",
                       yaxis_title="Median of other tissues (median TPM)")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # ---- Save for shortlist page stats
     st.session_state["spinal_rank"] = rank.copy()

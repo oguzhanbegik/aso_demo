@@ -813,7 +813,7 @@ def _import_run_from(filename: str):
 #    try:
 #        path = _find_page_file(filename)
 #        rel = path.relative_to(ROOT)
-#        st.page_link(str(rel).replace("\\", "/"), label=label, icon=icon, use_container_width=True)
+#        st.page_link(str(rel).replace("\\", "/"), label=label, icon=icon)
  #   except Exception:
  #       # fall back to showing a disabled note if not found
  #       st.caption(f"{icon} {label} (missing: {filename})")

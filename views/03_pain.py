@@ -84,27 +84,27 @@ def run(add_to_shortlist_fn):
             st.plotly_chart(
                 px.bar(hpo.sort_values("HPO_pain_hits", ascending=False).head(20), x="HPO_pain_hits", y="GeneSymbol", orientation="h",
                        title="Top HPO pain-associated genes"),
-                use_container_width=True
+                width="stretch"
             )
     with colB:
         if not clin.empty:
             st.plotly_chart(
                 px.bar(clin.sort_values("ClinVar_pain_variants", ascending=False).head(20), x="ClinVar_pain_variants", y="GeneSymbol", orientation="h",
                        title="Top ClinVar pain-variant genes"),
-                use_container_width=True
+                width="stretch"
             )
 
     # Combined table
     st.subheader("Combined pain table")
     st.caption("Simple **pain score** = HPO hits + ClinVar variant rows (by gene).")
-    st.dataframe(pain.head(500), use_container_width=True, height=500)
+    st.dataframe(pain.head(500), height=500)
 
     st.download_button(
         "⬇️ Download pain overlay (CSV)",
         data=pain.to_csv(index=False).encode(),
         file_name="pain_overlay_genes.csv",
         mime="text/csv",
-        use_container_width=True,
+        width="stretch"
     )
 
     # Save to session for shortlist page stats

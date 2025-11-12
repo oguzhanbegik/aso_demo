@@ -114,7 +114,7 @@ def run(add_to_shortlist_fn):
         fig.add_hline(y=-np.log10(padj_thr), line_dash="dot", line_color="#999")
         fig.add_vrect(x0=-lfc_thr, x1=lfc_thr, fillcolor="#bbb", opacity=0.15, line_width=0)
         fig.update_layout(margin=dict(l=20, r=20, t=30, b=20), legend_title_text="", showlegend=True)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     st.subheader("Radar — expression bias of a gene across clusters")
     wide = (markers.groupby(["Cluster","Gene"])["log2FC"].mean().reset_index()
@@ -134,7 +134,7 @@ def run(add_to_shortlist_fn):
     radar.add_trace(go.Scatterpolar(r=r, theta=cats_closed, fill='toself', name=sel_gene))
     radar.update_layout(polar=dict(radialaxis=dict(visible=True, tickfont=dict(size=10))),
                         showlegend=False, height=520, margin=dict(l=30, r=30, t=30, b=30))
-    st.plotly_chart(radar, use_container_width=True)
+    st.plotly_chart(radar, width="stretch")
 
     if not panels.empty:
         hits = panels[panels["Gene"] == sel_gene]["Panel"].unique().tolist()
@@ -145,14 +145,14 @@ def run(add_to_shortlist_fn):
 
     st.subheader("Filtered marker table")
     st.caption(f"Filters: {len(sel_clusters)} clusters; |log2FC| ≥ {lfc_thr}; padj ≤ {padj_thr}")
-    st.dataframe(filt.sort_values(["Cluster","padj"]).reset_index(drop=True), use_container_width=True, height=380)
+    st.dataframe(filt.sort_values(["Cluster","padj"]).reset_index(drop=True), height=380)
 
     st.download_button(
         "⬇️ Download filtered table (CSV)",
         data=filt.to_csv(index=False).encode(),
         file_name="DRG_markers_filtered.csv",
         mime="text/csv",
-        use_container_width=True
+        width="stretch"
     )
 
     # Save for shortlist stats
