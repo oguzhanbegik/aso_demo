@@ -125,8 +125,13 @@ def load_gtf(path):
     return df[["seqname","start","end","strand","gene_name","transcript_id"]]
 
 @st.cache_data(show_spinner=False)
-def load_fasta_dict(fa_path):
-    return SeqIO.to_dict(SeqIO.parse(fa_path, "fasta"))
+def load_fasta_dict(fa_path: str):
+    if fa_path.endswith(".gz"):
+        import gzip
+        with gzip.open(fa_path, "rt") as fh:
+            return SeqIO.to_dict(SeqIO.parse(fh, "fasta"))
+    else:
+        return SeqIO.to_dict(SeqIO.parse(fa_path, "fasta"))
 
 def make_tiles(seq: str, k: int, step: int = 1) -> List[Tuple[int,str,float,str]]:
     tiles = []
@@ -596,6 +601,7 @@ def page_aso_design():
         st.warning(f"Collapsed FASTA unavailable → {e}")
         cdna_fa = None
 
+
     # Only fetch huge genome locally (never on Streamlit)
     fa = None
     if not os.environ.get("STREAMLIT_CLOUD", "").lower().startswith("true") and not cdna_fa:
@@ -604,6 +610,10 @@ def page_aso_design():
         if not cdna_fa:
             st.error("Genome FASTA disabled in cloud mode and no cDNA FASTA found.")
             return
+
+    ref = None
+    if 'fa' in locals() and fa and os.path.exists(fa):
+        ref = load_fasta_dict(fa)
 
 
     if not (os.path.exists(fa) and os.path.exists(gff)):
@@ -701,21 +711,38 @@ def page_aso_design():
     # ---- Build cDNA of the target isoform only (GFF → exons)
     # Fallback to genomic stitching if needed
     if seq is None:
-        t_rec = next((t for t in isoforms if t[0].split("|")[0] == core_id), isoforms[0])
+        # ---- Pick target isoform
+        t_rec = next((t for t in isoforms if t[0].split("|")[0] == str(target_pbid).split("|")[0]), isoforms[0])
         _pbid, exons, chrom, strand = t_rec
-        chrom = _normalize_chrom(chrom, ref)
-        if chrom not in ref:
-            st.error(f"Chromosome {chrom} not in FASTA (after normalization)."); return
-        chseq = ref[chrom].seq
-        seq   = "".join(str(chseq[int(s)-1:int(e)]) for (s, e) in sorted(exons))
-        if strand == "-":
-            seq = str(Seq(seq).reverse_complement())
+        core_id = str(_pbid).split("|")[0]
 
-    # optional trim for folding
-    if FAST_MODE and len(seq) > FOLD_LEN_CAP:
-        mid  = len(seq)//2
-        half = FOLD_LEN_CAP//2
-        seq  = seq[max(0, mid-half):mid+half]
+        # ---- Try collapsed cDNA FASTA first
+        seq = None
+        if cdna_fa and os.path.exists(cdna_fa):
+            ref_cdna = load_fasta_dict(cdna_fa)  # handles .gz
+            if core_id in ref_cdna:
+                seq = str(ref_cdna[core_id].seq)
+                st.caption(f"Loaded transcript {core_id} from collapsed cDNA FASTA.")
+
+        # ---- Fallback to genomic stitching only if cDNA missing
+        if seq is None:
+            if ref is None:
+                st.error("No transcript sequence available: collapsed cDNA not found and genome FASTA not loaded.")
+                return
+            chrom_norm = _normalize_chrom(chrom, ref)  # <-- now ref is guaranteed
+            if chrom_norm not in ref:
+                st.error(f"Chromosome {chrom_norm} not in FASTA (after normalization).")
+                return
+            chseq = ref[chrom_norm].seq
+            seq   = "".join(str(chseq[int(s)-1:int(e)]) for (s, e) in sorted(exons))
+            if strand == "-":
+                seq = str(Seq(seq).reverse_complement())
+
+# optional trim for folding (unchanged)
+if FAST_MODE and len(seq) > FOLD_LEN_CAP:
+    mid  = len(seq)//2
+    half = FOLD_LEN_CAP//2
+    seq  = seq[max(0, mid-half):mid+half]
 
         # ---- Fold (cache by gene|pbid|len|k|cap|FAST_MODE)
     key   = f"{gene}|{_pbid}|{len(seq)}|{k}|{FOLD_LEN_CAP}|{FAST_MODE}"
@@ -739,19 +766,27 @@ def page_aso_design():
 
     # build other isoform sequences (RNA alphabet) for uniqueness
     other_iso = []
-    try:
+    if cdna_fa and os.path.exists(cdna_fa):
+        # use collapsed cDNA by PBID core
         for (pb, exs, ch, stn) in isoforms:
-            if pb == _pbid:
+            pb_core = str(pb).split("|")[0]
+            if pb_core == core_id:
                 continue
-            ch2 = _normalize_chrom(ch, ref)
-            if ch2 not in ref:
-                continue
-            s2 = "".join(str(ref[ch2].seq[int(a)-1:int(b)]) for (a, b) in sorted(exs))
-            if stn == "-":
-                s2 = str(Seq(s2).reverse_complement())
-            other_iso.append(s2.replace("T", "U"))
-    except Exception:
-        pass
+            if pb_core in ref_cdna:
+                other_iso.append(str(ref_cdna[pb_core].seq).replace("T", "U"))
+    else:
+        # fallback: stitch from genome if available
+        if ref is not None:
+            for (pb, exs, ch, stn) in isoforms:
+                if pb == _pbid:
+                    continue
+                ch2 = _normalize_chrom(ch, ref)
+                if ch2 not in ref:
+                    continue
+                s2 = "".join(str(ref[ch2].seq[int(a)-1:int(b)]) for (a, b) in sorted(exs))
+                if stn == "-":
+                    s2 = str(Seq(s2).reverse_complement())
+                other_iso.append(s2.replace("T", "U"))
 
     if not ranked.empty:
         # ---- prepare the columns expected by uniqueness_vs_isoforms()
