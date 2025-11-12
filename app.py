@@ -232,7 +232,7 @@ The workflow is split across pages; **use the sidebar** to navigate.
 2. **Pain Genetics**  
    Overlay **HPO** and **ClinVar** pain evidence. Quick summaries and counts make it obvious which genes recur across sources.
 3. **DRG Cluster Markers**  
-   Validate the candidates against **DRG single-cell** markers (volcano/radar), and see if they appear in published panels.
+   Validate the candidates against **DRG single-cell** markers (volcano/radar), and see if they appear in published panels (Single cell and nuclei sequencing data obtaiend from : "A Reference Atlas of the Human Dorsal Root Ganglion", Bhuiyan et al, 2025 BioRxiv)
 4. **Shortlist**  
    Central board to review all genes you added. You’ll see per-gene quick stats (specificity, pain hits, dominant DRG cluster) and a short description.
 5. **ASO Design**  
@@ -241,13 +241,16 @@ The workflow is split across pages; **use the sidebar** to navigate.
 **How to use**  
 - On each page, **scroll to the end** to add a gene via a dropdown to the shared **Shortlist**.  
 - In **Shortlist**, pick a gene to jump into **ASO Design**.  
-- Use `config.toml` to point to your local files (FASTA/GTF, GTEx, DRG tables, etc.).
 
-**Paths (from config):**  
-- Data: `{DATA_DIR}`  
-- Reference: `{REF_DIR}` (expects `*.fa`, `*.gtf`, GTEx `.gct.gz`)  
-- Pain: `{PAIN_DIR}`  
-- DRG study: `{DRG_STUDY_DIR}`
+**What can be added in time? **  
+- More sophisticated structure analysis (DMS, SHAPE etc).
+- More through isoform analysis.
+- Using RNA-FM (Foundation Model) in order to optimise the ASO design.
+- Calculate ASO efficiency scores via integrating AI tools (for example, including chemistry metrics of the ASO molecule). Give the option to choose the modified nucleotides.
+- Using spatial transcriptomics and other scRNA sequencing datasets to assess the cell-specific expression of RNAs better
+- Integrate omics datasets for better target identification (with the help of AI)
+- Dig deeper into the Pain Genetics section (mutations and phenotypes) for target identification
+
 """)
 
 # ====== Page 2 loader (for shortlist stats later) ======
