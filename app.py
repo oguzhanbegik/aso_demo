@@ -223,7 +223,7 @@ def gene_col(df):
 def page_home():
     st.title("Plug-and-Play ASO Decision Demo (Pain/DRG)")
     st.markdown("""
-Developed by Oguzhan Begik, 12 november 2025
+Developed by Oguzhan Begik, 12 november 2025  
 This app helps you **prioritize antisense oligonucleotide (ASO) targets** for **pain** using public and study-specific evidence.  
 The workflow is split across pages; **use the sidebar** to navigate.
 
